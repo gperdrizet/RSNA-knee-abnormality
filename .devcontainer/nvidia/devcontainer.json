@@ -1,0 +1,53 @@
+// For format details, see https://aka.ms/devcontainer.json.
+{
+	// Container definition for Kaggle competition development environment (NVIDIA GPU)
+	// Mirrors the Kaggle notebook GPU environment: pinned package versions from the
+	// Kaggle session pip freeze, CUDA 12.8, custom PyTorch 2.10.0 wheel with Pascal
+	// support (works on P100/GTX 10xx, unlike Kaggle's own stock wheel), plus RAPIDS.
+	// See here: https://hub.docker.com/r/gperdrizet/kaggle-nvidia
+	"name": "Kaggle NVIDIA",
+	"image": "gperdrizet/kaggle-nvidia",
+    "runArgs": [
+		"--gpus", "all",              // Enable all available GPUs in the container
+		"--pid=host",                 // Use host PIDs, needed for nvidia-smi process list
+		"--ipc=host",                 // Connect to host interprocess namespace
+		"--ulimit", "memlock=-1",     // Turn off memory lock limit
+		"--ulimit", "stack=67108864", // Increase process stack limit to 64 MB
+		"--network=bridge"            // Explicitly use bridge network for internet access
+	],
+	"remoteUser": "vscode",           // Use the 'vscode' user provided by the base image
+
+	// Custom configuration options
+	"customizations": {
+
+	  // Configure VS Code settings and extensions
+	  "vscode": {
+
+		// Use 'settings' to set default VS Code values on container create
+		"settings": {
+			// Set the default Python interpreter
+			"python.defaultInterpreterPath": "/usr/local/bin/python",
+
+			// Disable automatic port forwarding to give explicit control
+			"remote.restoreForwardedPorts": false
+		},
+
+		// Extensions for Python data science work
+		"extensions": [
+		  "-dbaeumer.vscode-eslint",                // Explicitly exclude ESLint (not needed for Python projects)
+		  "ms-python.python",                       // Core Python language support, IntelliSense, debugging
+		  "ms-toolsai.jupyter",                     // Jupyter notebook support for interactive data science
+		  "streetsidesoftware.code-spell-checker"   // Spell checking for code and documentation
+		]
+	  }
+	},
+
+	// Create data and notebooks directories on first container creation
+	"onCreateCommand": "mkdir -p data && mkdir -p notebooks",
+
+	// Use 'postCreateCommand' to run commands once after the container is created
+	"postCreateCommand": "",
+
+	// Use 'postAttachCommand' to run commands each time a user connects to the container
+	"postAttachCommand": ""
+}

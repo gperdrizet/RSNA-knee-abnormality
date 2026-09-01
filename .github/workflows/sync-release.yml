@@ -1,0 +1,39 @@
+name: Sync release from docker-images
+
+on:
+  repository_dispatch:
+    types: [docker-images-release]
+
+jobs:
+  tag-release:
+    name: Create matching tag and release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Authenticate git with token
+        run: |
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+
+      - name: Create tag for release and push
+        env:
+          VERSION: ${{ github.event.client_payload.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Create GitHub release
+        env:
+          VERSION: ${{ github.event.client_payload.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${VERSION}" --title "v${VERSION}" --generate-notes
+          echo "Created release v${VERSION}"
+
+
