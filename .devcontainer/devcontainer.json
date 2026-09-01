@@ -1,15 +1,27 @@
 // For format details, see https://aka.ms/devcontainer.json.
 {
-	// Container definition for Kaggle competition development environment (CPU)
-	// Mirrors the Kaggle notebook CPU environment: pinned package versions from the
-	// Kaggle session pip freeze. Based on python:3.12-slim. CPU only, no GPU dependencies.
-	// See here: https://hub.docker.com/r/gperdrizet/kaggle-cpu
-	"name": "Kaggle CPU",
-	"image": "gperdrizet/kaggle-cpu",
+	// Container definition for Kaggle competition development environment (NVIDIA GPU)
+	// Mirrors the Kaggle notebook GPU environment: pinned package versions from the
+	// Kaggle session pip freeze, CUDA 12.8, custom PyTorch 2.10.0 wheel with Pascal
+	// support (works on P100/GTX 10xx, unlike Kaggle's own stock wheel), plus RAPIDS.
+	// See here: https://hub.docker.com/r/gperdrizet/kaggle-nvidia
+	"name": "Kaggle NVIDIA",
+	"image": "gperdrizet/kaggle-nvidia",
     "runArgs": [
+		"--gpus", "device=2",         // Choose which GPU(s) to pass into container
+		"--pid=host",                 // Use host PIDs, needed for nvidia-smi process list
+		"--ipc=host",                 // Connect to host interprocess namespace
+		"--ulimit", "memlock=-1",     // Turn off memory lock limit
+		"--ulimit", "stack=67108864", // Increase process stack limit to 64 MB
 		"--network=bridge"            // Explicitly use bridge network for internet access
 	],
 	"remoteUser": "vscode",           // Use the 'vscode' user provided by the base image
+
+	"mounts": [
+		// Source: fast_scratch bcache device on the host machine
+		// Target: data directory in container
+		"source=/mnt/fast_scratch/RSNA-knee-data,target=${containerWorkspaceFolder}/data,type=bind"
+	],
 
 	// Custom configuration options
 	"customizations": {
@@ -48,12 +60,12 @@
 	  }
 	},
 
-	// Create data and notebooks directories on first container creation
-	"onCreateCommand": "mkdir -p data && mkdir -p notebooks",
+	// Use 'onCreateCommand' to run commands once when the container is first created
+	"onCreateCommand": "",
 
 	// Use 'postCreateCommand' to run commands once after the container is created
 	"postCreateCommand": "cp --update=none .env.template .env",
 
 	// Use 'postAttachCommand' to run commands each time a user connects to the container
-	"postAttachCommand": ""
+	"postAttachCommand": "source .env"
 }
