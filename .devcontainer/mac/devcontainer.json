@@ -55,7 +55,7 @@
 	"onCreateCommand": "mkdir -p data && mkdir -p notebooks",
 
 	// Use 'postCreateCommand' to run commands once after the container is created
-	"postCreateCommand": "cp -n .env.template .env",
+	"postCreateCommand": "cp --update=none .env.template .env",
 
 	// Use 'postAttachCommand' to run commands each time a user connects to the container
 	"postAttachCommand": ""
