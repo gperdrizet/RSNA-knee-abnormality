@@ -8,6 +8,7 @@
 	"name": "Kaggle NVIDIA",
 	"image": "gperdrizet/kaggle-nvidia",
     "runArgs": [
+		"--env-file", ".env",         // Load environment variables from .env file
 		"--gpus", "device=2",         // Choose which GPU(s) to pass into container
 		"--pid=host",                 // Use host PIDs, needed for nvidia-smi process list
 		"--ipc=host",                 // Connect to host interprocess namespace
@@ -64,8 +65,8 @@
 	"onCreateCommand": "",
 
 	// Use 'postCreateCommand' to run commands once after the container is created
-	"postCreateCommand": "cp --update=none .env.template .env",
+	"postCreateCommand": "",
 
 	// Use 'postAttachCommand' to run commands each time a user connects to the container
-	"postAttachCommand": "source .env"
+	"postAttachCommand": ""
 }
