@@ -19,8 +19,20 @@
 
 		// Use 'settings' to set default VS Code values on container create
 		"settings": {
+
 			// Set the default Python interpreter
 			"python.defaultInterpreterPath": "/usr/local/bin/python",
+
+			// Exclude other Python versions from Jupyter kernel list
+			"jupyter.kernels.excludePythonEnvironments": [
+				"/bin/python",
+				"/bin/python3",
+				"/bin/python3.12",
+				"/usr/bin/python3",
+				"/usr/bin/python3.12",
+				"/usr/local/bin/python3",
+				"/usr/local/bin/python3.12"
+			],
 
 			// Disable automatic port forwarding to give explicit control
 			"remote.restoreForwardedPorts": false
