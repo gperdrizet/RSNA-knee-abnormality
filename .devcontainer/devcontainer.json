@@ -9,7 +9,7 @@
 	"image": "gperdrizet/kaggle-nvidia",
     "runArgs": [
 		"--env-file", ".env",         // Load environment variables from .env file
-		"--gpus", "device=2",         // Choose which GPU(s) to pass into container
+		"--gpus", "device=0",         // Choose which GPU(s) to pass into container
 		"--pid=host",                 // Use host PIDs, needed for nvidia-smi process list
 		"--ipc=host",                 // Connect to host interprocess namespace
 		"--ulimit", "memlock=-1",     // Turn off memory lock limit
@@ -65,7 +65,7 @@
 	"onCreateCommand": "",
 
 	// Use 'postCreateCommand' to run commands once after the container is created
-	"postCreateCommand": "sudo apt update && sudo apt install -y unzip && pip install --force-reinstall kaggle",
+	"postCreateCommand": "sudo apt update && sudo apt upgrade && sudo apt install -y unzip && pip install --force-reinstall kaggle",
 
 	// Use 'postAttachCommand' to run commands each time a user connects to the container
 	"postAttachCommand": ""
