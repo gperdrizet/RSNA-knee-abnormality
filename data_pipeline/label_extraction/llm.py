@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List
 
-import pandas as pd
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
@@ -55,29 +55,64 @@ class ReportLabels(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Client (module-level lazy singleton)
+# Client pool: one ChatOpenAI per local llama.cpp server, round-robin by uid
 # ---------------------------------------------------------------------------
 
-_client: Optional[ChatOpenAI] = None
+_clients: List[ChatOpenAI] = []
+_clients_lock = threading.Lock()
 
 
-def get_client() -> ChatOpenAI:
-    '''Return a shared ChatOpenAI client or create one on first call.'''
+def _build_clients() -> List[ChatOpenAI]:
+    '''Build one ChatOpenAI client per configured local server endpoint.'''
 
-    global _client
+    load_dotenv(os.path.join(config.REPO_ROOT, '.env'))
 
-    if _client is None:
-        load_dotenv(os.path.join(config.REPO_ROOT, '.env'))
+    api_key = os.environ[config.ENV_LOCAL_API_KEY]
+    model = os.environ.get(config.ENV_LOCAL_MODEL, 'default')
+    urls = [os.environ[name] for name in config.ENV_LOCAL_URLS
+            if os.environ.get(name)]
 
-        _client = ChatOpenAI(
-            base_url=os.environ['BASE_URL'],
-            api_key=os.environ['API_KEY'],
-            model=os.environ.get('MODEL', 'default'),
+    if not urls:
+        raise RuntimeError(
+            f'No local server URLs found; set {config.ENV_LOCAL_URLS} in .env')
+
+    clients = [
+        ChatOpenAI(
+            base_url=url,
+            api_key=api_key,
+            model=model,
             temperature=config.DEFAULT_TEMPERATURE,
             timeout=600,
         )
+        for url in urls
+    ]
 
-    return _client
+    logger.info('LLM client pool: %d server(s): %s', len(clients), urls)
+
+    return clients
+
+
+def get_clients() -> List[ChatOpenAI]:
+    '''Return the shared client pool, building it on first call.'''
+
+    global _clients
+
+    if not _clients:
+        with _clients_lock:
+            if not _clients:
+                _clients = _build_clients()
+
+    return _clients
+
+
+def _client_for(uid: str) -> ChatOpenAI:
+    '''Pick a client for this uid: a stable hash spreads uids evenly and
+    deterministically across the available servers.'''
+
+    clients = get_clients()
+    idx = hash(uid) % len(clients)
+
+    return clients[idx], idx
 
 
 # ---------------------------------------------------------------------------
@@ -101,13 +136,14 @@ def extract_report(report: str, uid: str = "?") -> Dict:
 
     # Sample at temp 0.4 for all N calls (matches calibration behavior);
     # the majority vote over 3 samples is the determinism mechanism.
-    client = get_client().model_copy(
+    base_client, endpoint_idx = _client_for(uid)
+    client = base_client.model_copy(
         update={'temperature': config.SAMPLE_TEMPERATURE}
     )
 
     sc = client.with_structured_output(ReportLabels)
     messages = build_messages(report)
-    tag = f'uid={uid}'
+    tag = f'uid={uid} endpoint={endpoint_idx}'
 
     samples: List[ReportLabels] = []
     errors: List[str] = []

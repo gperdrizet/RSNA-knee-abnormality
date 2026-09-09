@@ -47,12 +47,20 @@ ENV_BASE_URL = 'BASE_URL'
 ENV_MODEL = 'MODEL'
 ENV_API_KEY = 'API_KEY'
 
+# Local llama.cpp servers: one API key shared across N base URLs, each with
+# its own model (4 slots each). Work is split across these round-robin.
+ENV_LOCAL_API_KEY = 'LOCAL_API_KEY'
+ENV_LOCAL_MODEL = 'LOCAL_MODEL'
+ENV_LOCAL_URLS = ['LOCAL_URL_A', 'LOCAL_URL_B']
+SLOTS_PER_LOCAL_SERVER = 4
+
 # --- API settings ---
 # Sampling temperature for the majority-vote samples (all N samples use this;
 # the vote over 3 samples is the determinism mechanism, not temperature=0).
 SAMPLE_TEMPERATURE = 0.4
 DEFAULT_TEMPERATURE = 0.0       # kept for reference / single-sample calls
 DEFAULT_SAMPLES_PER_REPORT = 3  # majority-vote samples per report
+# 2 local servers x 4 slots each = 8 concurrent requests fit comfortably.
 DEFAULT_WORKERS = 8
 TIMEOUT_SECONDS = 600
 # Flat retry policy: on any API error, sleep this long and retry once.
