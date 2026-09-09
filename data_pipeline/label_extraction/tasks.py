@@ -75,7 +75,7 @@ class ExtractLabels(luigi.Task):
     run_id = luigi.Parameter()
     uid = luigi.Parameter()
 
-    def input(self):
+    def requires(self):
         return TrainDataAvailable()
 
     def output(self) -> luigi.Target:
@@ -171,7 +171,7 @@ class BuildLabeledDataset(luigi.Task):
 
     run_id = luigi.Parameter()
 
-    def input(self):
+    def requires(self):
         reports = data.load_train_reports()
         unlabeled = reports.loc[~reports['is_labeled'], 'StudyInstanceUID']
         deps = [TrainDataAvailable()]
