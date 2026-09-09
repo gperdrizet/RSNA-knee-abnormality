@@ -65,7 +65,7 @@
 	"onCreateCommand": "",
 
 	// Use 'postCreateCommand' to run commands once after the container is created
-	"postCreateCommand": "sudo apt update && sudo apt upgrade -y && sudo apt install -y unzip && pip install --force-reinstall kaggle && mkdir -p data/raw",
+	"postCreateCommand": "sudo apt update && sudo apt upgrade -y && sudo apt install -y unzip && pip install --force-reinstall kaggle && mkdir -p data/raw && mkdir -p logs",
 
 	// Use 'postAttachCommand' to run commands each time a user connects to the container
 	"postAttachCommand": ""
