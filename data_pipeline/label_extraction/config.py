@@ -4,13 +4,13 @@ Configuration constants for label extraction.
 
 from pathlib import Path
 
-# --- Repository layout ---
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+# Repository layout
+REPO_ROOT    = Path(__file__).resolve().parent.parent.parent
 RAW_DATA_DIR = REPO_ROOT / 'data' / 'raw'
-TRAIN_CSV = RAW_DATA_DIR / 'train.csv'
-OUTPUT_ROOT = REPO_ROOT / 'data' / 'pipeline' / 'label_extraction'
+TRAIN_CSV    = RAW_DATA_DIR / 'train.csv'
+OUTPUT_ROOT  = REPO_ROOT / 'data' / 'pipeline' / 'label_extraction'
 
-# --- The 12 target conditions (order matters for output column order) ---
+# The 12 target conditions (order matters for output column order) ---
 CONDITIONS = [
     'ACL',
     'MCL',
@@ -42,32 +42,38 @@ CONDITION_DESCRIPTIONS = {
     'Fracture': 'Fracture (any site in the knee: patella, femoral condyle, tibial plateau, etc.)',
 }
 
-# --- Environment variable names (read from .env) ---
+# Environment variable names (read from .env)
 ENV_BASE_URL = 'BASE_URL'
-ENV_MODEL = 'MODEL'
-ENV_API_KEY = 'API_KEY'
+ENV_MODEL    = 'MODEL'
+ENV_API_KEY  = 'API_KEY'
 
 # Local llama.cpp servers: one API key shared across N base URLs, each with
 # its own model (4 slots each). Work is split across these round-robin.
-ENV_LOCAL_API_KEY = 'LOCAL_API_KEY'
-ENV_LOCAL_MODEL = 'LOCAL_MODEL'
-ENV_LOCAL_URLS = ['LOCAL_URL_A', 'LOCAL_URL_B']
+ENV_LOCAL_API_KEY      = 'LOCAL_API_KEY'
+ENV_LOCAL_MODEL        = 'LOCAL_MODEL'
+ENV_LOCAL_URLS         = ['LOCAL_URL_A', 'LOCAL_URL_B']
 SLOTS_PER_LOCAL_SERVER = 4
 
-# --- API settings ---
+# API settings
 # Sampling temperature for the majority-vote samples (all N samples use this;
 # the vote over 3 samples is the determinism mechanism, not temperature=0).
-SAMPLE_TEMPERATURE = 0.4
-DEFAULT_TEMPERATURE = 0.0       # kept for reference / single-sample calls
+SAMPLE_TEMPERATURE         = 0.4
+DEFAULT_TEMPERATURE        = 0.0       # kept for reference / single-sample calls
 DEFAULT_SAMPLES_PER_REPORT = 3  # majority-vote samples per report
+
 # 2 local servers x 4 slots each = 8 concurrent requests fit comfortably.
 DEFAULT_WORKERS = 8
 TIMEOUT_SECONDS = 600
+
 # Flat retry policy: on any API error, sleep this long and retry once.
 # (No token bucket, no exponential backoff — the gateway is ours to scale.)
 RETRY_SLEEP_SECONDS = 15
 
-# --- Output ---
-LABEL_SOURCE_GOLD = 'gold'
+# Output
+LABEL_SOURCE_GOLD   = 'gold'
 LABEL_SOURCE_PSEUDO = 'pseudo'
-MERGED_CSV_NAME = 'train_labeled_v2.csv'
+MERGED_CSV_NAME     = 'train_labeled_v2.csv'
+
+# Calibration (58 gold rows) output subdirectory, one JSON per uid:
+# {cond: [value, evidence, agreement]}
+CALIBRATION_DIR_NAME = 'calibration_rows'

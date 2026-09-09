@@ -6,6 +6,9 @@ Usage:
 
 Subcommands:
     build      Run the full job for one run id (extraction + dataset build)
+    calibrate  Re-run extraction against just the 58 gold rows, capturing
+               value/evidence/agreement per condition (data/pipeline/
+               label_extraction/<run>/calibration_rows/*.json)
 
 Every run id writes to data/pipeline/label_extraction/<run>/ so runs are
 side-by-side and easy to diff.  Each UID's output is cached at the
@@ -61,6 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
         help='Run the build job (extraction + merged dataset) for one run'
     )
 
+    sub.add_parser(
+        'calibrate', parents=[common],
+        help='Re-run extraction against the 58 gold rows for one run'
+    )
+
     return p
 
 
@@ -71,6 +79,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.command == 'build':
         task_objs = [tasks.BuildLabeledDataset(run_id=args.run)]
+    elif args.command == 'calibrate':
+        task_objs = [tasks.RunCalibration(run_id=args.run)]
 
     luigi.build(
         task_objs,

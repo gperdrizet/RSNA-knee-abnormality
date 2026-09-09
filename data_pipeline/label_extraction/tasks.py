@@ -16,7 +16,10 @@ Rows where every LLM sample failed are written with null labels +
 ``label_status='failed'`` and appended to ``failed_uids.txt`` so the
 dataset build still completes; 402s stop the whole run.
 
-Calibration against the 58 gold rows lives in a notebook, not a task.
+``CalibrateGoldRow(run_id, uid)`` mirrors ``ExtractLabels`` but runs against
+the 58 gold reports instead, writing ``calibration_rows/{uid}.json`` with
+``{cond: [value, evidence, agreement]}`` for the calibration notebook to
+load directly - no separate backfill script needed to re-run calibration.
 '''
 
 import json
@@ -43,6 +46,13 @@ def run_dir(run_id: str) -> Path:
 
 def labels_dir(run_id: str) -> Path:
     d = run_dir(run_id) / 'labels'
+    d.mkdir(parents=True, exist_ok=True)
+
+    return d
+
+
+def calibration_dir(run_id: str) -> Path:
+    d = run_dir(run_id) / config.CALIBRATION_DIR_NAME
     d.mkdir(parents=True, exist_ok=True)
 
     return d
@@ -164,6 +174,96 @@ def result_to_records(uid: str, result: dict) -> dict:
             row[f'{cond}_evidence'] = ev
 
     return row
+
+
+class CalibrateGoldRow(luigi.Task):
+    '''Extract labels + agreement for one gold-labeled report (calibration).'''
+
+    run_id = luigi.Parameter()
+    uid = luigi.Parameter()
+
+    def requires(self):
+        return TrainDataAvailable()
+
+    def output(self) -> luigi.Target:
+        return luigi.LocalTarget(str(calibration_dir(self.run_id) /
+                                     f'{self.uid}.json'))
+
+    def run(self) -> None:
+        reports = data.load_train_reports()
+        row = reports.loc[reports['StudyInstanceUID'] == self.uid]
+
+        if row.empty:
+            raise ValueError(f'UID {self.uid} not found in train.csv')
+
+        row = row.iloc[0]
+
+        if not bool(row['is_labeled']):
+            raise ValueError(f'UID {self.uid} is not gold-labeled')
+
+        report = row['Report']
+
+        if not isinstance(report, str) or not report.strip():
+            raise ValueError(f'UID {self.uid}: missing/empty report')
+
+        logger.info(
+            'CalibrateGoldRow start uid=%s run=%s',
+            self.uid, self.run_id
+        )
+
+        try:
+            result = llm.extract_report(report, uid=self.uid)
+
+        except llm.BalanceExhaustedError:
+            raise
+
+        except llm.ExtractionError as e:
+            logger.critical(
+                'CalibrateGoldRow giving up on uid=%s: %s',
+                self.uid, e
+            )
+
+            record_failure(self.run_id, self.uid, f'extraction_error: {e}')
+            result = {'unparseable': True, 'labels': {}, 'agreement': {}}
+
+        if result.get('unparseable'):
+            record_failure(self.run_id, self.uid, 'unparseable')
+            record = {}
+        else:
+            record = {
+                cond: [value, evidence, result['agreement'].get(cond, 1.0)]
+                for cond, (value, evidence) in result['labels'].items()
+            }
+
+        out = Path(self.output().path)
+        tmp = out.with_suffix(out.suffix + '.tmp')
+
+        with open(tmp, 'w', encoding='utf-8') as fh:
+            json.dump(record, fh)
+
+        tmp.replace(out)
+
+
+class RunCalibration(luigi.Task):
+    '''Umbrella task: calibrate every gold row for one run id.'''
+
+    run_id = luigi.Parameter()
+
+    def requires(self):
+        reports = data.load_train_reports()
+        gold_uids = reports.loc[reports['is_labeled'], 'StudyInstanceUID']
+
+        return [TrainDataAvailable()] + [
+            CalibrateGoldRow(run_id=self.run_id, uid=u) for u in gold_uids
+        ]
+
+    def output(self) -> luigi.Target:
+        return luigi.LocalTarget(
+            str(calibration_dir(self.run_id) / '_complete'))
+
+    def run(self) -> None:
+        with open(self.output().path, 'w', encoding='utf-8') as fh:
+            fh.write('done\n')
 
 
 class BuildLabeledDataset(luigi.Task):
