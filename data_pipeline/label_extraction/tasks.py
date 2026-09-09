@@ -24,7 +24,9 @@ load directly - no separate backfill script needed to re-run calibration.
 
 import json
 import logging
+import os
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 import luigi
@@ -262,6 +264,18 @@ class RunCalibration(luigi.Task):
             str(calibration_dir(self.run_id) / '_complete'))
 
     def run(self) -> None:
+        meta = {
+            'run_id': self.run_id,
+            'model': os.environ.get(config.ENV_LOCAL_MODEL, 'default'),
+            'urls': [os.environ[name] for name in config.ENV_LOCAL_URLS
+                     if os.environ.get(name)],
+            'samples_per_report': config.DEFAULT_SAMPLES_PER_REPORT,
+            'completed_at': datetime.now(timezone.utc).isoformat(),
+        }
+
+        meta_path = run_dir(self.run_id) / 'run_meta.json'
+        meta_path.write_text(json.dumps(meta, indent=2))
+
         with open(self.output().path, 'w', encoding='utf-8') as fh:
             fh.write('done\n')
 

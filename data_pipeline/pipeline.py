@@ -6,7 +6,7 @@ Usage:
 
 Subcommands:
     build      Run the full job for one run id (extraction + dataset build)
-    calibrate  Re-run extraction against just the 58 gold rows, capturing
+    calibrate  Run extraction against just the 58 gold rows, capturing
                value/evidence/agreement per condition (data/pipeline/
                label_extraction/<run>/calibration_rows/*.json)
 
@@ -79,6 +79,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.command == 'build':
         task_objs = [tasks.BuildLabeledDataset(run_id=args.run)]
+
     elif args.command == 'calibrate':
         task_objs = [tasks.RunCalibration(run_id=args.run)]
 
