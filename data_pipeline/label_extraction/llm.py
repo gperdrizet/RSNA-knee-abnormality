@@ -5,6 +5,12 @@ Uses LangChain's ``with_structured_output`` to get typed Pydantic objects
 back from the model.  Each report is sampled 3×; per-condition majority
 vote produces the final label.
 
+Two extraction paths share the same N-sample majority-vote core
+(``_sample_and_vote``): ``extract_report`` (one model) and
+``extract_report_ensemble`` (phi4 + qwen7B, combined per condition via
+``config.ENSEMBLE_RULESET`` when ``config.ENSEMBLE_MODE`` is set - see
+notebooks/02-label_extraction.ipynb section 4).
+
 Architecture kept intentionally flat for a bootcamp audience: one file,
 clear functions, no abstractions beyond what the framework gives us.
 '''
@@ -35,7 +41,10 @@ class ConditionLabel(BaseModel):
     '''Label for a single condition.'''
 
     value: int = Field(ge=0, le=1, description="1 if present, 0 if absent")
-    evidence: str = Field(default="", description="Short verbatim quote from the report supporting the value; empty string if none")
+    evidence: str = Field(
+        default="",
+        description="Short verbatim quote from the report supporting the value; empty string if none"
+    )
 
     class Config:
         title = "ConditionLabel"
@@ -44,7 +53,10 @@ class ConditionLabel(BaseModel):
 class ReportLabels(BaseModel):
     '''Structured output: one entry per condition plus an unparseable flag.'''
 
-    unparseable: bool = Field(default=False, description="True only if the report is truncated, gibberish, or clearly not a knee MRI report")
+    unparseable: bool = Field(
+        default=False,
+        description="True only if the report is truncated, gibberish, or clearly not a knee MRI report"
+    )
 
     labels: Dict[str, ConditionLabel] = Field(
         description=f"One entry per each of these 12 conditions: {', '.join(config.CONDITIONS)}"
@@ -69,8 +81,10 @@ def _build_clients() -> List[ChatOpenAI]:
 
     api_key = os.environ[config.ENV_LOCAL_API_KEY]
     model = os.environ.get(config.ENV_LOCAL_MODEL, 'default')
-    urls = [os.environ[name] for name in config.ENV_LOCAL_URLS
-            if os.environ.get(name)]
+    urls = [
+        os.environ[name] for name in config.ENV_LOCAL_URLS
+        if os.environ.get(name)
+    ]
 
     if not urls:
         raise RuntimeError(
@@ -82,6 +96,7 @@ def _build_clients() -> List[ChatOpenAI]:
             api_key=api_key,
             model=model,
             temperature=config.DEFAULT_TEMPERATURE,
+            max_tokens=config.MAX_TOKENS,
             timeout=600,
         )
         for url in urls
@@ -116,12 +131,74 @@ def _client_for(uid: str) -> ChatOpenAI:
 
 
 # ---------------------------------------------------------------------------
+# Ensemble client pool: one ChatOpenAI per model (phi4 + qwen7B), each on
+# its own dedicated llama.cpp server/GPU - no round-robin, one fixed
+# client per model.
+# ---------------------------------------------------------------------------
+
+_ensemble_clients: Dict[str, ChatOpenAI] = {}
+_ensemble_clients_lock = threading.Lock()
+
+
+def _build_ensemble_clients() -> Dict[str, ChatOpenAI]:
+    '''Build one ChatOpenAI client per ensemble model side ('model_a',
+    'model_b'), reading its URL/model name from its own env vars.'''
+
+    load_dotenv(os.path.join(config.REPO_ROOT, '.env'))
+
+    api_key = os.environ[config.ENV_LOCAL_API_KEY]
+    clients = {}
+
+    for key, url_env, model_env in [
+        ('model_a', config.ENV_ENSEMBLE_MODEL_A_URL, config.ENV_ENSEMBLE_MODEL_A_NAME),
+        ('model_b', config.ENV_ENSEMBLE_MODEL_B_URL, config.ENV_ENSEMBLE_MODEL_B_NAME),
+    ]:
+        url = os.environ.get(url_env)
+
+        if not url:
+            raise RuntimeError(
+                f'ENSEMBLE_MODE requires {url_env} to be set in .env')
+
+        clients[key] = ChatOpenAI(
+            base_url=url,
+            api_key=api_key,
+            model=os.environ.get(model_env, 'default'),
+            temperature=config.DEFAULT_TEMPERATURE,
+            max_tokens=config.MAX_TOKENS,
+            timeout=600,
+        )
+
+    logger.info(
+        'Ensemble client pool: model_a=%s (%s) model_b=%s (%s)',
+        os.environ.get(config.ENV_ENSEMBLE_MODEL_A_NAME, 'default'),
+        os.environ[config.ENV_ENSEMBLE_MODEL_A_URL],
+        os.environ.get(config.ENV_ENSEMBLE_MODEL_B_NAME, 'default'),
+        os.environ[config.ENV_ENSEMBLE_MODEL_B_URL],
+    )
+
+    return clients
+
+
+def get_ensemble_clients() -> Dict[str, ChatOpenAI]:
+    '''Return the shared ensemble client pool, building it on first call.'''
+
+    global _ensemble_clients
+
+    if not _ensemble_clients:
+        with _ensemble_clients_lock:
+            if not _ensemble_clients:
+                _ensemble_clients = _build_ensemble_clients()
+
+    return _ensemble_clients
+
+
+# ---------------------------------------------------------------------------
 # Extraction (single report → N samples → majority vote)
 # ---------------------------------------------------------------------------
 
 
 def extract_report(report: str, uid: str = "?") -> Dict:
-    '''Call the LLM n_samples× and return a majority-vote result.
+    '''Call one model N times and return a majority-vote result.
 
     Returns a dict of the same shape the old ``extract.py`` produced:
         {"unparseable": bool,
@@ -132,18 +209,105 @@ def extract_report(report: str, uid: str = "?") -> Dict:
     schema-validation), so the caller can log and skip.
     '''
 
-    n = config.DEFAULT_SAMPLES_PER_REPORT
-
-    # Sample at temp 0.4 for all N calls (matches calibration behavior);
-    # the majority vote over 3 samples is the determinism mechanism.
     base_client, endpoint_idx = _client_for(uid)
+    tag = f'uid={uid} endpoint={endpoint_idx}'
+
+    return _sample_and_vote(base_client, report, tag)
+
+
+def extract_report_ensemble(report: str, uid: str = "?") -> Dict:
+    '''Two-model ensemble extraction: phi4 (model_a) and qwen7B (model_b)
+    each independently do their own N-sample majority vote, then
+    per-condition results are combined via ``config.ENSEMBLE_RULESET``.
+
+    Same return shape as ``extract_report``. If one model's samples all
+    fail or come back unparseable, its votes default to 0/absent for
+    combination purposes (conservative: an 'AND' condition can't turn
+    positive off a model that produced nothing).
+    '''
+
+    clients = get_ensemble_clients()
+    per_model: Dict[str, Dict] = {}
+    errors: Dict[str, BaseException] = {}
+
+    def _run(key: str, client: ChatOpenAI) -> None:
+        try:
+            per_model[key] = _sample_and_vote(client, report, f'uid={uid} model={key}')
+        except BaseException as e:  # noqa: BLE001 - re-raised on the main thread below
+            errors[key] = e
+
+    # Run both models concurrently (each on its own GPU/server) rather than
+    # sequentially, so the ensemble costs one round-trip, not two.
+    threads = [threading.Thread(target=_run, args=(key, client)) for key, client in clients.items()]
+
+    for t in threads:
+        t.start()
+
+    for t in threads:
+        t.join()
+
+    if 'model_a' in errors and 'model_b' in errors:
+        raise errors['model_a']
+
+    for key in ('model_a', 'model_b'):
+        if key in errors:
+            if isinstance(errors[key], BalanceExhaustedError):
+                raise errors[key]
+
+            logger.warning(
+                'Ensemble uid=%s: %s failed entirely (%s); treating its votes as absent',
+                uid, key, errors[key]
+            )
+            per_model[key] = {
+                'unparseable': True, 'labels': {},
+                'agreement': {c: 1.0 for c in config.CONDITIONS}
+            }
+
+    if per_model['model_a']['unparseable'] and per_model['model_b']['unparseable']:
+        return {'unparseable': True, 'labels': {}, 'agreement': {}}
+
+    labels: Dict[str, tuple] = {}
+    agreement: Dict[str, float] = {}
+
+    for cond in config.CONDITIONS:
+        a_val, a_ev = per_model['model_a']['labels'].get(cond, (0, ''))
+        b_val, b_ev = per_model['model_b']['labels'].get(cond, (0, ''))
+        a_ag = per_model['model_a']['agreement'].get(cond, 1.0)
+        b_ag = per_model['model_b']['agreement'].get(cond, 1.0)
+
+        policy = config.ENSEMBLE_RULESET.get(cond, 'AND')
+
+        if policy == 'model_a':
+            value, evidence, agmt = a_val, a_ev, a_ag
+        elif policy == 'model_b':
+            value, evidence, agmt = b_val, b_ev, b_ag
+        else:  # 'AND'
+            value = 1 if (a_val == 1 and b_val == 1) else 0
+            evidence = a_ev if len(a_ev) >= len(b_ev) else b_ev
+            agmt = min(a_ag, b_ag)
+
+        labels[cond] = (value, evidence)
+        agreement[cond] = agmt
+
+    positives = [c for c, (v, _) in labels.items() if v == 1]
+    logger.info('Ensemble extraction done uid=%s positives=%s', uid, positives)
+
+    return {'unparseable': False, 'labels': labels, 'agreement': agreement}
+
+
+def _sample_and_vote(base_client: ChatOpenAI, report: str, tag: str) -> Dict:
+    '''Call ``base_client`` N times at ``config.SAMPLE_TEMPERATURE`` and
+    return the majority-vote result (shape documented on
+    ``extract_report``). Shared by the single-model and ensemble paths.
+    '''
+
+    n = config.DEFAULT_SAMPLES_PER_REPORT
     client = base_client.model_copy(
         update={'temperature': config.SAMPLE_TEMPERATURE}
     )
 
     sc = client.with_structured_output(ReportLabels)
     messages = build_messages(report)
-    tag = f'uid={uid} endpoint={endpoint_idx}'
 
     samples: List[ReportLabels] = []
     errors: List[str] = []
@@ -156,7 +320,7 @@ def extract_report(report: str, uid: str = "?") -> Dict:
         except Exception as e:
             if _is_balance_error(e):
                 logger.critical(
-                    'Balance exhausted (402) on %s — stopping run. '
+                    'Balance exhausted (402) on %s: stopping run. '
                     'Top up and re-run; completed rows are cached.', tag
                 )
 

@@ -20,6 +20,11 @@ dataset build still completes; 402s stop the whole run.
 the 58 gold reports instead, writing ``calibration_rows/{uid}.json`` with
 ``{cond: [value, evidence, agreement]}`` for the calibration notebook to
 load directly - no separate backfill script needed to re-run calibration.
+
+Both tasks call ``extract()`` below, which dispatches to
+``llm.extract_report`` (one model) or ``llm.extract_report_ensemble``
+(phi4 + qwen7B combined per ``config.ENSEMBLE_RULESET``) depending on
+``config.ENSEMBLE_MODE`` - see notebooks/02-label_extraction.ipynb section 4.
 '''
 
 import json
@@ -68,6 +73,37 @@ def record_failure(run_id: str, uid: str, reason: str) -> None:
     with _FAILED_LOCK:
         with open(f, 'a', encoding='utf-8') as fh:
             fh.write(f'{uid}\t{reason}\n')
+
+
+def extract(report: str, uid: str) -> dict:
+    '''Dispatch to the ensemble or single-model extraction path per
+    ``config.ENSEMBLE_MODE`` - the one place ExtractLabels/CalibrateGoldRow
+    need to branch on it.'''
+
+    if config.ENSEMBLE_MODE:
+        return llm.extract_report_ensemble(report, uid=uid)
+
+    return llm.extract_report(report, uid=uid)
+
+
+def model_meta() -> dict:
+    '''Model/prompt provenance fields shared by RunCalibration and
+    BuildLabeledDataset's run_meta.json.'''
+
+    if config.ENSEMBLE_MODE:
+        return {
+            'ensemble_mode': True,
+            'model_a': os.environ.get(config.ENV_ENSEMBLE_MODEL_A_NAME, 'default'),
+            'model_b': os.environ.get(config.ENV_ENSEMBLE_MODEL_B_NAME, 'default'),
+            'ensemble_ruleset': config.ENSEMBLE_RULESET,
+        }
+
+    return {
+        'ensemble_mode': False,
+        'model': os.environ.get(config.ENV_LOCAL_MODEL, 'default'),
+        'urls': [os.environ[name] for name in config.ENV_LOCAL_URLS
+                 if os.environ.get(name)],
+    }
 
 
 class TrainDataAvailable(luigi.Task):
@@ -119,7 +155,7 @@ class ExtractLabels(luigi.Task):
         status = 'pseudo'
 
         try:
-            result = llm.extract_report(report, uid=self.uid)
+            result = extract(report, self.uid)
 
             if result.get('unparseable'):
                 status = 'unparseable'
@@ -214,7 +250,7 @@ class CalibrateGoldRow(luigi.Task):
         )
 
         try:
-            result = llm.extract_report(report, uid=self.uid)
+            result = extract(report, self.uid)
 
         except llm.BalanceExhaustedError:
             raise
@@ -266,9 +302,8 @@ class RunCalibration(luigi.Task):
     def run(self) -> None:
         meta = {
             'run_id': self.run_id,
-            'model': os.environ.get(config.ENV_LOCAL_MODEL, 'default'),
-            'urls': [os.environ[name] for name in config.ENV_LOCAL_URLS
-                     if os.environ.get(name)],
+            **model_meta(),
+            'prompt_version': config.PROMPT_VERSION,
             'samples_per_report': config.DEFAULT_SAMPLES_PER_REPORT,
             'completed_at': datetime.now(timezone.utc).isoformat(),
         }
@@ -374,3 +409,18 @@ class BuildLabeledDataset(luigi.Task):
 
         merged.to_csv(self.output().path, index=False)
         logger.info('Wrote %s (%d rows)', self.output().path, len(merged))
+
+        # Provenance: which model/prompt produced this build (RunCalibration
+        # already writes this; BuildLabeledDataset didn't until now).
+        meta = {
+            'run_id': self.run_id,
+            **model_meta(),
+            'prompt_version': config.PROMPT_VERSION,
+            'samples_per_report': config.DEFAULT_SAMPLES_PER_REPORT,
+            'n_rows': len(merged),
+            'n_failed_or_unparseable': n_fail,
+            'completed_at': datetime.now(timezone.utc).isoformat(),
+        }
+
+        meta_path = run_dir(self.run_id) / 'run_meta.json'
+        meta_path.write_text(json.dumps(meta, indent=2))

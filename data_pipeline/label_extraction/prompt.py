@@ -10,9 +10,34 @@ Contents:
     - explicit negation and hedging policy
     - truncation / unparseable handling
     - a few-shot exemplar (a short real gold-labeled report)
+
+Prompt versions:
+    - v1: original prompt (default; used by all prior calibration runs).
+    - v2: adds one narrow rule on top of v1 - an instruction to read the
+      whole report body (not just the conclusion) specifically for
+      Effusion, since it's the only condition where phi4's round-1 misses
+      (run 20260909_phi4) showed a genuine, isolated coverage gap: real
+      supporting text present but buried outside the summary line, fixable
+      without side effects (a scoped test on this run dropped Effusion's
+      FN 1->0 with no change in its FP count).
+      A broader version of this rule (applied to all 12 conditions) and
+      several other candidate rules (grade-1/2-sprain exclusions for
+      ACL/MCL, mild-chondrosis thresholds for the OA conditions, an
+      effusion-implies-synovitis override) were tried and rejected: the
+      severity/grade-language rules all failed the same check - identical
+      phrasing (e.g. "grade II sprain", "mild chondrosis") labeled both
+      positive and negative for the same condition elsewhere in the 58-row
+      gold set, i.e. genuine annotation noise, not a learnable pattern. A
+      good chunk of the remaining false negatives (most of Synovitis,
+      Fracture, Lateral OA, PF OA) have no supporting text in the report at
+      all, so no prompt wording can recover them. The blanket coverage rule
+      also measurably increased FPs on already over-calling conditions
+      (ACL, MCL) without a matching benefit elsewhere - see notebook
+      section 4 for the numbers.
+    Selected via ``config.PROMPT_VERSION`` (env var ``PROMPT_VERSION``).
 '''
 
-from data_pipeline.label_extraction.config import CONDITIONS, CONDITION_DESCRIPTIONS
+from data_pipeline.label_extraction.config import CONDITIONS, CONDITION_DESCRIPTIONS, PROMPT_VERSION
 
 # --- Per-condition multilingual glossary of finding terms (seed terms observed
 #     in the multilingual training data). Deliberately terse. ---
@@ -136,6 +161,16 @@ schema is:
 }}
 """
 
+SYSTEM_PROMPT_V2 = SYSTEM_PROMPT.replace(
+    "- If the report is clearly truncated mid-sentence, is gibberish, or is not a\n"
+    "  readable knee report, answer with {{\"unparseable\": true}} and nothing else.\n",
+    "- If the report is clearly truncated mid-sentence, is gibberish, or is not a\n"
+    "  readable knee report, answer with {{\"unparseable\": true}} and nothing else.\n"
+    "- Effusion is sometimes mentioned once in the body of the report and not\n"
+    "  repeated in a summary/conclusion line - read the entire report body,\n"
+    "  not just the conclusion, before deciding on Effusion specifically.\n"
+)
+
 _USER_TMPL = """Example (few-shot):
 Report:
 {exemplar_report}
@@ -164,7 +199,8 @@ def build_glossary_text() -> str:
 
 
 def build_system_prompt() -> str:
-    return SYSTEM_PROMPT.format(glossary=build_glossary_text())
+    template = SYSTEM_PROMPT_V2 if PROMPT_VERSION == 'v2' else SYSTEM_PROMPT
+    return template.format(glossary=build_glossary_text())
 
 
 def build_user_prompt(report: str) -> str:
