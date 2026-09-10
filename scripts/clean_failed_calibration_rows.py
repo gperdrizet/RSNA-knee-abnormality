@@ -83,6 +83,7 @@ def main() -> None:
         if row_path.exists():
             row_path.unlink()
             removed += 1
+
         else:
             missing += 1
 
