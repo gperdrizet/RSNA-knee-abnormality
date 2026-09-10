@@ -111,3 +111,11 @@ def mcnemar_bias(df: pd.DataFrame, label_cols: list) -> pd.DataFrame:
     bias_tbl['flag'] = np.where(bias_tbl['mcnemar_p'] < 0.05, '*** significant bias ***', '')
 
     return bias_tbl
+
+
+def bias_severity(bias_tbl: pd.DataFrame) -> float:
+    '''Sum of -log10(p) over significantly-biased conditions - rewards both
+    fewer and less-confident biases, unlike a plain significant-count.'''
+    sig_p = bias_tbl.loc[bias_tbl['mcnemar_p'] < 0.05, 'mcnemar_p']
+
+    return float((-np.log10(sig_p)).sum())
