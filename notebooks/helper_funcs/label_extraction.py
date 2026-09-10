@@ -119,3 +119,41 @@ def bias_severity(bias_tbl: pd.DataFrame) -> float:
     sig_p = bias_tbl.loc[bias_tbl['mcnemar_p'] < 0.05, 'mcnemar_p']
 
     return float((-np.log10(sig_p)).sum())
+
+
+def per_report_multilabel_metrics(df: pd.DataFrame, label_cols: list) -> pd.DataFrame:
+    '''Per-report multi-label agreement: this is multi-label (a report can be
+    positive on several conditions at once - see gold stats in 2.1), so
+    per-condition metrics alone can hide a labeler that's right on average
+    per-condition but consistently gets the wrong *set* of conditions on any
+    given report. Compares gold vs. predicted positive-condition sets.'''
+    recs = []
+
+    for uid, row in df.iterrows():
+        g = {c for c in label_cols if (row.get(f'{c}_label') or 0) == 1}
+        p = {c for c in label_cols if (row.get(f'{c}_pred') or 0) == 1}
+        union = g | p
+
+        recs.append({
+            'StudyInstanceUID': uid,
+            'gold_count': len(g),
+            'pred_count': len(p),
+            'count_match': len(g) == len(p),
+            'exact_match': g == p,
+            'jaccard': len(g & p) / len(union) if union else 1.0,
+        })
+
+    return pd.DataFrame(recs).set_index('StudyInstanceUID')
+
+
+def multilabel_summary(per_report: pd.DataFrame) -> dict:
+    '''Run-level rollup of per_report_multilabel_metrics: exact-set-match
+    rate, label-count-match rate, mean Jaccard, and mean signed count error
+    (positive = over-calling, negative = under-calling on average).'''
+
+    return {
+        'exact_match_rate': float(per_report['exact_match'].mean()),
+        'count_match_rate': float(per_report['count_match'].mean()),
+        'mean_jaccard': float(per_report['jaccard'].mean()),
+        'mean_count_diff': float((per_report['pred_count'] - per_report['gold_count']).mean()),
+    }
