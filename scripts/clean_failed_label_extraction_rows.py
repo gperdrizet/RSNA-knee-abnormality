@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 '''
-Remove failed calibration rows for a label-extraction run so calibration can
-be safely re-run.
+Remove failed rows for a label-extraction run so it can be safely re-run
+(resumed) - works for both calibration runs (`pipeline.py calibrate`) and
+full build runs (`pipeline.py build`).
 
 Deletes, under data/pipeline/label_extraction/<run_id>/:
-  - calibration_rows/{uid}.json for each uid listed in failed_uids.txt
-  - calibration_rows/_complete (the run's completion marker)
+  - calibration_rows/{uid}.json (calibration runs) or labels/{uid}.csv
+    (build runs) for each uid listed in failed_uids.txt
+  - calibration_rows/_complete, the run's completion marker (calibration
+    runs only - build runs have no equivalent single-file marker)
   - failed_uids.txt itself
+
+Run kind (calibration vs build) is auto-detected from which output
+subdirectory exists under the run directory.
 
 Writes a simplified one-line-per-uid summary of the failures to
 cleaned_errors.txt for future reference before deleting failed_uids.txt.
@@ -23,12 +29,15 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_ROOT = REPO_ROOT / 'data' / 'pipeline' / 'label_extraction'
 CALIBRATION_DIR_NAME = 'calibration_rows'
+LABELS_DIR_NAME = 'labels'
 
 # Collapses the noisy per-sample JSON error blob down to a short label.
 _ERROR_PATTERNS = [
     (re.compile(r'Context size has been exceeded'), 'context_size_exceeded'),
     (re.compile(r'length limit was reached'), 'length_limit_reached'),
+    (re.compile(r'Connection error'), 'connection_error'),
     (re.compile(r'^unparseable$'), 'unparseable'),
+    (re.compile(r'^failed$'), 'failed'),
 ]
 
 
@@ -47,8 +56,8 @@ def main() -> None:
 
     run_dir = OUTPUT_ROOT / args.run_id
     calibration_dir = run_dir / CALIBRATION_DIR_NAME
+    labels_dir = run_dir / LABELS_DIR_NAME
     failed_uids_path = run_dir / 'failed_uids.txt'
-    complete_marker = calibration_dir / '_complete'
     cleaned_errors_path = run_dir / 'cleaned_errors.txt'
 
     if not run_dir.is_dir():
@@ -56,6 +65,17 @@ def main() -> None:
 
     if not failed_uids_path.exists():
         sys.exit(f'No failed_uids.txt found at {failed_uids_path}; nothing to clean')
+
+    if calibration_dir.is_dir():
+        rows_dir, ext, complete_marker = calibration_dir, '.json', calibration_dir / '_complete'
+        print(f'Detected calibration run ({calibration_dir})')
+
+    elif labels_dir.is_dir():
+        rows_dir, ext, complete_marker = labels_dir, '.csv', None
+        print(f'Detected build run ({labels_dir})')
+
+    else:
+        sys.exit(f'Neither {calibration_dir} nor {labels_dir} exists; cannot determine run kind')
 
     reasons_by_uid: dict[str, str] = {}
 
@@ -78,7 +98,7 @@ def main() -> None:
     removed, missing = 0, 0
 
     for uid in reasons_by_uid:
-        row_path = calibration_dir / f'{uid}.json'
+        row_path = rows_dir / f'{uid}{ext}'
 
         if row_path.exists():
             row_path.unlink()
@@ -87,9 +107,9 @@ def main() -> None:
         else:
             missing += 1
 
-    print(f'Removed {removed} calibration row(s); {missing} already absent')
+    print(f'Removed {removed} row(s); {missing} already absent')
 
-    if complete_marker.exists():
+    if complete_marker is not None and complete_marker.exists():
         complete_marker.unlink()
         print(f'Removed {complete_marker}')
 
@@ -99,3 +119,4 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
+
