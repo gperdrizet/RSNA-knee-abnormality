@@ -14,3 +14,5 @@ TRAIN_CSV        = f'{DATA_DIR}/train.csv'
 TRAIN_SERIES_CSV = f'{DATA_DIR}/train_series.csv'
 TEST_CSV         = f'{DATA_DIR}/test.csv'
 TEST_SERIES_CSV  = f'{DATA_DIR}/test_series.csv'
+
+MERGED_CSV_NAME  = 'train_labeled_v2.csv'

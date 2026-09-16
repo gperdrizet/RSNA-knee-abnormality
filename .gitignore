@@ -3,3 +3,5 @@ __pycache__
 .vscode
 data
 logs
+!data/pseudolabeled-train.csv
+!data/pseudolabeling-run-metadata.json
