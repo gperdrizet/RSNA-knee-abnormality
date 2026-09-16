@@ -6,7 +6,7 @@
 	// support (works on P100/GTX 10xx, unlike Kaggle's own stock wheel), plus RAPIDS.
 	// See here: https://hub.docker.com/r/gperdrizet/kaggle-nvidia
 	"name": "Kaggle NVIDIA",
-	"image": "gperdrizet/kaggle-nvidia",
+	"image": "gperdrizet/kaggle-cpu",
     "runArgs": [
 		"--env-file", ".env",         // Load environment variables from .env file
 		"--gpus", "device=0",         // Choose which GPU(s) to pass into container
@@ -65,7 +65,7 @@
 	"onCreateCommand": "",
 
 	// Use 'postCreateCommand' to run commands once after the container is created
-	"postCreateCommand": "sudo apt update && sudo apt upgrade -y && sudo apt install -y unzip && pip install --force-reinstall kaggle && mkdir -p data/raw && mkdir -p logs",
+	"postCreateCommand": "sudo apt update && sudo apt upgrade -y && sudo apt install -y unzip && pip install --force-reinstall kaggle && mkdir -p data/raw && mkdir -p logs && pip install -r requirements.txt",
 
 	// Use 'postAttachCommand' to run commands each time a user connects to the container
 	"postAttachCommand": ""
