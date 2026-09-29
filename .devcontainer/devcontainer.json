@@ -6,10 +6,10 @@
 	// support (works on P100/GTX 10xx, unlike Kaggle's own stock wheel), plus RAPIDS.
 	// See here: https://hub.docker.com/r/gperdrizet/kaggle-nvidia
 	"name": "Kaggle NVIDIA",
-	"image": "gperdrizet/kaggle-cpu",
+	"image": "gperdrizet/kaggle-nvidia:7.0.1",
     "runArgs": [
 		"--env-file", ".env",         // Load environment variables from .env file
-		"--gpus", "device=0",         // Choose which GPU(s) to pass into container
+		"--gpus", "device=1",         // Choose which GPU(s) to pass into container
 		"--pid=host",                 // Use host PIDs, needed for nvidia-smi process list
 		"--ipc=host",                 // Connect to host interprocess namespace
 		"--ulimit", "memlock=-1",     // Turn off memory lock limit
@@ -17,7 +17,9 @@
 		"--network=bridge"            // Explicitly use bridge network for internet access
 	],
 	"remoteUser": "vscode",           // Use the 'vscode' user provided by the base image
-
+	"containerEnv": {
+		"PIP_BREAK_SYSTEM_PACKAGES": "1"
+	},
 	"mounts": [
 		// Source: fast_scratch bcache device on the host machine
 		// Target: data directory in container
@@ -68,7 +70,7 @@
 	"onCreateCommand": "",
 
 	// Use 'postCreateCommand' to run commands once after the container is created
-	"postCreateCommand": "sudo apt update && sudo apt upgrade -y && sudo apt install -y unzip && pip install --force-reinstall kaggle && mkdir -p data/raw && mkdir -p logs && pip install -r requirements.txt",
+	"postCreateCommand": "sudo apt update && sudo apt upgrade -y && sudo apt install -y unzip && pip install --user --force-reinstall kaggle && mkdir -p data/raw && mkdir -p logs && pip install --user -r requirements.txt",
 
 	// Use 'postAttachCommand' to run commands each time a user connects to the container
 	"postAttachCommand": ""
