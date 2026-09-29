@@ -21,7 +21,10 @@
 	"mounts": [
 		// Source: fast_scratch bcache device on the host machine
 		// Target: data directory in container
-		"source=/mnt/fast_scratch/RSNA-knee-data,target=${containerWorkspaceFolder}/data,type=bind"
+		"source=/mnt/fast_scratch/RSNA-knee-data,target=${containerWorkspaceFolder}/data,type=bind",
+
+		// Mounts the host's .ssh folder to the container user's .ssh folder
+		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
 	],
 
 	// Custom configuration options
