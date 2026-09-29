@@ -15,4 +15,9 @@ TRAIN_SERIES_CSV = f'{DATA_DIR}/train_series.csv'
 TEST_CSV         = f'{DATA_DIR}/test.csv'
 TEST_SERIES_CSV  = f'{DATA_DIR}/test_series.csv'
 
-MERGED_CSV_NAME  = 'train_labeled_v2.csv'
+# Pseudolabeled data paths
+PIPELINE_DATA_DIR    = '../data/pipeline'
+LABEL_EXTRACTION_DIR = f'{PIPELINE_DATA_DIR}/label_extraction'
+EXTRACTION_RUN_DIR   = f'{LABEL_EXTRACTION_DIR}/20260910_ensemble_full'
+MERGED_CSV_PATH      = f'{EXTRACTION_RUN_DIR}/train_labeled_v2.csv'
+CLEANED_CSV_PATH     = '../data/pseudolabeled-train.csv'
