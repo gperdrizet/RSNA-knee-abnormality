@@ -19,19 +19,26 @@ _reports_cache_mtime: float | None = None
 
 def load_train_reports() -> pd.DataFrame:
     """Return (StudyInstanceUID, Report, is_labeled) for the whole dataset."""
+
     global _reports_cache, _reports_cache_mtime
     mtime = config.TRAIN_CSV.stat().st_mtime
+
     if _reports_cache is not None and _reports_cache_mtime == mtime:
         return _reports_cache
+
     df = pd.read_csv(config.TRAIN_CSV)
+
     label_cols = [c for c in df.columns
                   if c not in ('StudyInstanceUID', 'Report')]
+
     _reports_cache = pd.DataFrame({
         'StudyInstanceUID': df['StudyInstanceUID'],
         'Report': df['Report'],
         'is_labeled': df[label_cols].notna().any(axis=1),
     })
+
     _reports_cache_mtime = mtime
+
     return _reports_cache
 
 

@@ -41,6 +41,7 @@ class ConditionLabel(BaseModel):
     '''Label for a single condition.'''
 
     value: int = Field(ge=0, le=1, description="1 if present, 0 if absent")
+
     evidence: str = Field(
         default="",
         description="Short verbatim quote from the report supporting the value; empty string if none"
@@ -81,6 +82,7 @@ def _build_clients() -> List[ChatOpenAI]:
 
     api_key = os.environ[config.ENV_LOCAL_API_KEY]
     model = os.environ.get(config.ENV_LOCAL_MODEL, 'default')
+
     urls = [
         os.environ[name] for name in config.ENV_LOCAL_URLS
         if os.environ.get(name)
