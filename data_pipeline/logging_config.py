@@ -52,5 +52,12 @@ def setup_logging(level: int = logging.INFO) -> None:
     file_handler.setFormatter(logging.Formatter(_FMT, _DATEFMT))
     root.addHandler(file_handler)
 
+    # Luigi's own logger (task failures, the final 'X tasks failed' summary)
+    # goes to a separate logger; attach it to the same file handler so
+    # failures are visible in the log even when the console is gone.
+    luigi_interface = logging.getLogger('luigi-interface')
+    luigi_interface.setLevel(logging.DEBUG)
+    luigi_interface.addHandler(file_handler)
+
     _configured = True
     root.info('Logging configured. File: %s', LOG_FILE)

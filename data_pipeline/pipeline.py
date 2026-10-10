@@ -1,18 +1,23 @@
 '''
-CLI for the key-label extraction pipeline.
+CLI for the data pipeline stages.
 
 Usage:
     python3 -m data_pipeline.pipeline build --run 20260705_001 --workers 8
+    python3 -m data_pipeline.pipeline preprocess --run 20261009_full --workers 8
 
 Subcommands:
-    build      Run the full job for one run id (extraction + dataset build)
-    calibrate  Run extraction against just the 58 gold rows, capturing
-               value/evidence/agreement per condition (data/pipeline/
-               label_extraction/<run>/calibration_rows/*.json)
+    build         Run the label extraction job for one run id
+                  (extraction + dataset build)
+    calibrate     Run extraction against just the 58 gold rows, capturing
+                  value/evidence/agreement per condition (data/pipeline/
+                  label_extraction/<run>/calibration_rows/*.json)
+    preprocess    Run the image preprocessing job for one run id
+                  (align/normalize/resample every series to standardized
+                  NIfTI volumes + manifest with pseudo labels)
 
-Every run id writes to data/pipeline/label_extraction/<run>/ so runs are
-side-by-side and easy to diff.  Each UID's output is cached at the
-file level, so re-running the same run id skips completed labels.
+Every run id writes to data/pipeline/<stage>/<run>/ so runs are
+side-by-side and easy to diff.  Each item's output is cached at the
+file level, so re-running the same run id skips completed work.
 
 Luigi scheduler: runs use a local (in-memory) scheduler by default so it
 never depends on a remote/redis setup.
@@ -23,6 +28,7 @@ from typing import Optional, Sequence
 
 import luigi
 
+from data_pipeline.image_preprocessing import tasks as preproc_tasks
 from data_pipeline.label_extraction import tasks
 from data_pipeline.logging_config import setup_logging
 
@@ -69,6 +75,23 @@ def build_parser() -> argparse.ArgumentParser:
         help='Re-run extraction against the 58 gold rows for one run'
     )
 
+    pp = sub.add_parser(
+        'preprocess', parents=[common],
+        help='Run the image preprocessing job for one run '
+             '(align/normalize/resample series to NIfTI + manifest)'
+    )
+
+    pp.add_argument(
+        '--splits', default='train,test',
+        help='Comma-separated splits to process (default: train,test)'
+    )
+
+    pp.add_argument(
+        '--limit', type=int, default=0,
+        help='Only process the first N series of each split (debugging; '
+             'default 0 = all)'
+    )
+
     return p
 
 
@@ -82,6 +105,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     elif args.command == 'calibrate':
         task_objs = [tasks.RunCalibration(run_id=args.run)]
+
+    elif args.command == 'preprocess':
+        task_objs = [preproc_tasks.BuildManifest(
+            run_id=args.run, splits=args.splits, limit=args.limit
+        )]
 
     luigi.build(
         task_objs,
